@@ -547,12 +547,24 @@ to case differences."
        (not (eq (process-status rtags-diagnostics-process) 'signal))
        (> (process-id rtags-diagnostics-process) 0)))
 
+;;; Restore Window Configuration
+
+(defvar rtags-previous-window-configuration nil)
+
+(defun rtags-restore-or-save-window-configuration ()
+  "Save or restore previous window configuration."
+  (let ((prev-winconf rtags-previous-window-configuration))
+    (when (and prev-winconf
+               (equal (selected-frame) (window-configuration-frame prev-winconf)))
+      (set-window-configuration prev-winconf))
+    (setq rtags-previous-window-configuration (current-window-configuration))))
+
 ;;;###autoload
-(defun rtags-bury-or-delete ()
-  (interactive)
-  (if (> (length (window-list)) 1)
-      (delete-window)
-    (bury-buffer)))
+(defun rtags-bury-or-kill-buffer (&optional kill-buffer)
+  "Bury current buffer. With a prefix argument, kill the buffer instead."
+  (interactive "P")
+  (quit-window kill-buffer (selected-window))
+  (rtags-restore-or-save-window-configuration))
 
 (defvar rtags-mode-map nil)
 ;; assign command to keys
@@ -564,7 +576,7 @@ to case differences."
 (define-key rtags-mode-map (kbd "M-o") 'rtags-show-in-other-window)
 (define-key rtags-mode-map (kbd "s") 'rtags-show-in-other-window)
 (define-key rtags-mode-map (kbd "SPC") 'rtags-select-and-remove-rtags-buffer)
-(define-key rtags-mode-map (kbd "q") 'rtags-bury-or-delete)
+(define-key rtags-mode-map (kbd "q") 'rtags-bury-or-kill-buffer)
 (define-key rtags-mode-map (kbd "j") 'next-line)
 (define-key rtags-mode-map (kbd "k") 'previous-line)
 (define-key rtags-mode-map (kbd "n") 'next-line)
@@ -590,7 +602,7 @@ to case differences."
 (define-key rtags-dependency-tree-mode-map (kbd "SPC") 'rtags-select-and-remove-rtags-buffer)
 (define-key rtags-dependency-tree-mode-map (kbd "k") 'previous-line)
 (define-key rtags-dependency-tree-mode-map (kbd "j") 'next-line)
-(define-key rtags-dependency-tree-mode-map (kbd "q") 'rtags-bury-or-delete)
+(define-key rtags-dependency-tree-mode-map (kbd "q") 'rtags-bury-or-kill-buffer)
 
 (defvar rtags-references-tree-mode-map nil)
 (setq rtags-references-tree-mode-map (make-sparse-keymap))
@@ -608,7 +620,7 @@ to case differences."
 (define-key rtags-references-tree-mode-map (kbd "SPC") 'rtags-select-and-remove-rtags-buffer)
 (define-key rtags-references-tree-mode-map (kbd "k") 'previous-line)
 (define-key rtags-references-tree-mode-map (kbd "j") 'next-line)
-(define-key rtags-references-tree-mode-map (kbd "q") 'rtags-bury-or-delete)
+(define-key rtags-references-tree-mode-map (kbd "q") 'rtags-bury-or-kill-buffer)
 
 (defvar rtags-current-file nil)
 (make-variable-buffer-local 'rtags-current-file)
@@ -1012,7 +1024,7 @@ Can be used both for path and location."
         (or async (> (point-max) (point-min)))))))
 
 (defvar rtags-preprocess-keymap (make-sparse-keymap))
-(define-key rtags-preprocess-keymap (kbd "q") 'rtags-bury-or-delete)
+(define-key rtags-preprocess-keymap (kbd "q") 'rtags-bury-or-kill-buffer)
 (set-keymap-parent rtags-preprocess-keymap c++-mode-map)
 (define-derived-mode rtags-preprocess-mode c++-mode
   (setq mode-name "rtags-preprocess")
@@ -1045,7 +1057,7 @@ Can be used both for path and location."
         (setq narrow-start (+ 1 (count-lines (point-min) (region-beginning)))
               narrow-end (+ 1 (count-lines (point-min) (region-end)))))
       (let ((preprocess-buffer (rtags-get-buffer (format "*RTags preprocessed %s*" (buffer-file-name buffer)))))
-        (rtags-delete-rtags-windows)
+        (rtags-restore-or-save-window-configuration)
         (rtags-location-stack-push)
         (with-current-buffer preprocess-buffer
           (rtags-call-rc :path (buffer-file-name buffer) "--preprocess" (buffer-file-name buffer))
@@ -1169,7 +1181,7 @@ Can be used both for path and location."
         (fn (buffer-file-name buffer))
         (args (and prefix (completing-read "Type: " (list "includes" "included-by" "depends-on" "depended-on" "tree-depends-on")))))
     (when fn
-      (rtags-delete-rtags-windows)
+      (rtags-restore-or-save-window-configuration)
       (rtags-location-stack-push)
       (switch-to-buffer dep-buffer)
       (rtags-call-rc :path fn "--dependencies" fn args (unless rtags-print-file-names-relative "-K"))
@@ -1349,7 +1361,7 @@ Can be used both for path and location."
           (deps)
           (fn (buffer-file-name)))
       (when (or all fn)
-        (rtags-delete-rtags-windows)
+        (rtags-restore-or-save-window-configuration)
         (rtags-location-stack-push)
         (with-temp-buffer
           (if all
@@ -1539,7 +1551,7 @@ Can be used both for path and location."
   (interactive)
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
     (rtags-reset-bookmarks)
-    (rtags-delete-rtags-windows)
+    (rtags-restore-or-save-window-configuration)
     (let ((ref-buffer (rtags-get-buffer "*RTags*"))
           (loc (rtags-current-location))
           (refs)
@@ -1565,7 +1577,7 @@ Can be used both for path and location."
             (rtags-call-rc "--current-project" :path fn)
             (when (> (point-max) (point-min))
               (setq project (buffer-substring-no-properties (point-min) (1- (point-max))))))
-          (rtags-delete-rtags-windows)
+          (rtags-restore-or-save-window-configuration)
           (rtags-location-stack-push)
           (switch-to-buffer-other-window ref-buffer)
           (rtags-references-tree-mode)
@@ -1604,7 +1616,7 @@ Can be used both for path and location."
     (let ((args-buffer (rtags-get-buffer))
           (source (buffer-file-name buffer)))
       (when source
-        (rtags-delete-rtags-windows)
+        (rtags-restore-or-save-window-configuration)
         (rtags-location-stack-push)
         (switch-to-buffer args-buffer)
         (rtags-call-rc :path source "--sources" source)
@@ -1622,7 +1634,7 @@ Can be used both for path and location."
           (path (buffer-file-name))
           (location (rtags-current-location)))
       (when (and path location)
-        (rtags-delete-rtags-windows)
+        (rtags-restore-or-save-window-configuration)
         (rtags-location-stack-push)
         (switch-to-buffer class-hierarchy-buffer)
         (rtags-call-rc :path path "--class-hierarchy" location (unless rtags-print-file-names-relative "-K"))
@@ -1934,7 +1946,7 @@ If called with prefix, open first match in other window"
   (let ((otherwindow (and prefix (listp prefix)))
         (pathfilter (and (numberp prefix) (buffer-file-name))))
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-    (rtags-delete-rtags-windows)
+    (rtags-restore-or-save-window-configuration)
     (rtags-location-stack-push)
     (let ((arg (rtags-current-location))
           (tagname (or (rtags-current-symbol) (rtags-current-token)))
@@ -1970,7 +1982,7 @@ is true. References to references will be treated as references to the reference
   (let ((otherwindow (and prefix (listp prefix)))
         (pathfilter (and (numberp prefix) (buffer-file-name))))
     (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-      (rtags-delete-rtags-windows)
+      (rtags-restore-or-save-window-configuration)
       (rtags-location-stack-push)
       (let ((arg (rtags-current-location))
             (fn (buffer-file-name)))
@@ -1988,7 +2000,7 @@ is true. References to references will be treated as references to the reference
   (let ((otherwindow (and prefix (listp prefix)))
         (pathfilter (and (numberp prefix) (buffer-file-name))))
     (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-      (rtags-delete-rtags-windows)
+      (rtags-restore-or-save-window-configuration)
       (rtags-location-stack-push)
       (let ((arg (rtags-current-location))
             (fn (buffer-file-name)))
@@ -2008,7 +2020,7 @@ is true. References to references will be treated as references to the reference
   (let ((otherwindow (and prefix (listp prefix)))
         (pathfilter (and (numberp prefix) (buffer-file-name))))
     (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-      (rtags-delete-rtags-windows)
+      (rtags-restore-or-save-window-configuration)
       (rtags-location-stack-push)
       (let ((arg (rtags-current-location))
             (fn (buffer-file-name)))
@@ -2026,7 +2038,7 @@ is true. References to references will be treated as references to the reference
 (defun rtags-guess-function-at-point()
   (interactive)
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-    (rtags-delete-rtags-windows)
+    (rtags-restore-or-save-window-configuration)
     (rtags-location-stack-push)
     (let ((token (rtags-current-token))
           (fn (buffer-file-name)))
@@ -2633,7 +2645,7 @@ is true. References to references will be treated as references to the reference
   (rtags-parse-diagnostics))
 
 (defvar rtags-diagnostics-mode-map (make-sparse-keymap))
-(define-key rtags-diagnostics-mode-map (kbd "q") 'rtags-bury-or-delete)
+(define-key rtags-diagnostics-mode-map (kbd "q") 'rtags-bury-or-kill-buffer)
 (define-key rtags-diagnostics-mode-map (kbd "c") 'rtags-clear-diagnostics)
 (define-key rtags-diagnostics-mode-map (kbd "f") 'rtags-apply-fixit-at-point)
 (set-keymap-parent rtags-diagnostics-mode-map compilation-mode-map)
@@ -2727,17 +2739,6 @@ is true. References to references will be treated as references to the reference
 
 (defun rtags-has-filemanager (&optional buffer)
   (rtags-buffer-status buffer))
-
-(defun rtags-delete-rtags-windows ()
-  (let* ((windows (window-list))
-         (count (length windows)))
-    (while windows
-      (when (rtags-is-rtags-buffer (window-buffer (car windows)))
-        (if (= count 1)
-            (bury-buffer (window-buffer (car windows)))
-          (decf count)
-          (delete-window (car windows))))
-      (setq windows (cdr windows)))))
 
 (defun rtags-format-results ()
   "Create a bookmark for each match and format the buffer."
@@ -2841,6 +2842,7 @@ The option OTHER-WINDOW is only applicable if RTags is configured not to show th
   (setq mode-name "rtags-taglist")
   (use-local-map rtags-mode-map)
   (run-hooks 'rtags-taglist-mode-hook))
+(define-key rtags-taglist-mode-map (kbd "q") 'rtags-bury-or-kill-buffer)
 
 ;;;###autoload
 (defun rtags-close-taglist ()
@@ -2879,11 +2881,12 @@ The option OTHER-WINDOW is only applicable if RTags is configured not to show th
 
 ;;;###autoload
 (defun rtags-taglist (&optional dest-window)
+  "Show all tags from current source file."
   (interactive)
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
     (unless (buffer-file-name)
       (error "rtags-taglist must be run from a buffer visiting a file"))
-    (rtags-delete-rtags-windows)
+    (rtags-restore-or-save-window-configuration)
     (rtags-location-stack-push)
     (setq rtags-taglist-locations nil)
     (let* ((fn (buffer-file-name)) functions classes variables enums macros other)
@@ -3001,7 +3004,7 @@ The option OTHER-WINDOW is only applicable if RTags is configured not to show th
 (defun rtags-imenu ()
   (interactive)
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-    (rtags-delete-rtags-windows)
+    (rtags-restore-or-save-window-configuration)
     (rtags-location-stack-push)
     (let* ((fn (buffer-file-name))
            (alternatives (with-temp-buffer
@@ -3044,7 +3047,7 @@ The option OTHER-WINDOW is only applicable if RTags is configured not to show th
 (defun rtags-find-file (&optional prefix default-tag)
   (interactive "P")
   (when (or (not (rtags-called-interactively-p)) (rtags-sandbox-id-matches))
-    (rtags-delete-rtags-windows)
+    (rtags-restore-or-save-window-configuration)
     (rtags-location-stack-push)
     (let ((tagname (or default-tag (rtags-current-symbol t)))
           (prompt)
@@ -3312,7 +3315,7 @@ definition."
           (select-window win))))))
 
 (defun rtags-find-symbols-by-name-internal (prompt switch &optional filter regexp-filter other-window)
-  (rtags-delete-rtags-windows)
+  (rtags-restore-or-save-window-configuration)
   (rtags-location-stack-push)
   (let ((tagname (rtags-current-symbol))
         (path (buffer-file-name))
